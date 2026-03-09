@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+trained_d2l/
+adapters_d2l/
+*.egg-info/
+.DS_Store
