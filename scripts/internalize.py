@@ -9,6 +9,12 @@ Usage:
     python internalize.py --input document.txt --question "What is it about?"
     python internalize.py --text "Some text..." --question "Q1?,Q2?"
     python internalize.py --input doc.txt  # internalize only, print confirmation
+
+Security note:
+    This script uses torch.load with weights_only=False because D2L checkpoints
+    contain Python config objects (AggregatorConfig, LoraConfig, HypernetConfig).
+    Only load checkpoints from trusted sources (the official SakanaAI/doc-to-lora
+    HuggingFace repository).
 """
 
 import argparse
@@ -27,13 +33,19 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
-import torch
-from ctx_to_lora.model_loading import get_tokenizer
-from ctx_to_lora.modeling.hypernet import ModulatedPretrainedModel
+import torch  # noqa: E402
+from ctx_to_lora.model_loading import get_tokenizer  # noqa: E402
+from ctx_to_lora.modeling.hypernet import ModulatedPretrainedModel  # noqa: E402
 
 
 def load_model(checkpoint_path: str):
-    """Load the D2L model with Mac-safe defaults."""
+    """Load the D2L model with Mac-safe defaults.
+
+    Note: weights_only=False is required because D2L checkpoints store
+    Python config dataclasses (AggregatorConfig, LoraConfig, etc.)
+    alongside model weights. This is safe when loading the official
+    SakanaAI/doc-to-lora checkpoint.
+    """
     if torch.cuda.is_available():
         device_map, dtype, flash = "cuda", torch.float16, True
     elif torch.backends.mps.is_available():
@@ -43,6 +55,9 @@ def load_model(checkpoint_path: str):
 
     print(f"Device: {device_map} | dtype: {dtype}")
 
+    # weights_only=False is needed: checkpoint contains config dataclasses
+    # (AggregatorConfig, LoraConfig, HypernetConfig) not just tensors.
+    # Only load from trusted sources.
     state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     if device_map != "cuda":
         state_dict["ctx_encoder_args"].quantize_ctx_encoder = False
@@ -92,12 +107,12 @@ def main():
     source.add_argument("--text", help="Raw text to internalize")
     parser.add_argument(
         "--question", default=None,
-        help="Question(s) to ask. Comma-separated for multiple."
+        help="Question(s) to ask. Comma-separated for multiple.",
     )
     parser.add_argument(
         "--checkpoint",
         default="trained_d2l/gemma_demo/checkpoint-80000/pytorch_model.bin",
-        help="Path to D2L checkpoint",
+        help="Path to D2L checkpoint (only load from trusted sources)",
     )
     parser.add_argument("--max-tokens", type=int, default=256)
     parser.add_argument(

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Setup Doc-to-LoRA on macOS (Apple Silicon).
 # Downloads model weights and installs dependencies.
+#
+# Prerequisites (install these first):
+#   - Python 3.10+
+#   - uv: https://docs.astral.sh/uv/getting-started/installation/
+#   - HF_TOKEN: https://huggingface.co/settings/tokens (needed for Gemma access)
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
@@ -9,13 +14,19 @@ cd "$REPO_ROOT"
 echo "=== Doc-to-LoRA Setup (macOS) ==="
 echo "Repo root: $REPO_ROOT"
 
-# 1. Install uv if missing
+# 1. Check prerequisites
 if ! command -v uv &>/dev/null; then
-    echo "[1/4] Installing uv package manager..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
-else
-    echo "[1/4] uv already installed."
+    echo "ERROR: uv is not installed."
+    echo "Install it first: https://docs.astral.sh/uv/getting-started/installation/"
+    exit 1
+fi
+echo "[1/4] uv found: $(uv --version)"
+
+if [ -z "$HF_TOKEN" ]; then
+    echo "WARNING: HF_TOKEN is not set."
+    echo "Gemma 2 2B is a gated model. You need a HuggingFace token with Gemma access."
+    echo "Get one at: https://huggingface.co/settings/tokens"
+    echo "Then: export HF_TOKEN=hf_..."
 fi
 
 # 2. Run the Mac install script (creates venv, installs deps)
@@ -36,29 +47,10 @@ uv pip install mlx mlx-lm safetensors 2>/dev/null || true
 # 4. Download pretrained D2L weights from HuggingFace
 if [ ! -d "trained_d2l" ]; then
     echo "[4/4] Downloading Doc-to-LoRA weights (~3GB)..."
-    echo "       You may need to set HF_TOKEN for gated models."
     uv run huggingface-cli download SakanaAI/doc-to-lora --local-dir trained_d2l
 else
     echo "[4/4] trained_d2l/ already present, skipping download."
 fi
-
-# 5. Download base model (Gemma 2 2B) if not cached
-echo ""
-echo "Ensuring Gemma 2 2B-it is cached..."
-python -c "
-from transformers import AutoTokenizer, AutoModelForCausalLM
-print('Checking model cache...')
-try:
-    AutoTokenizer.from_pretrained('google/gemma-2-2b-it')
-    print('  Tokenizer: cached')
-except Exception as e:
-    print(f'  Tokenizer: needs download ({e})')
-try:
-    AutoModelForCausalLM.from_pretrained('google/gemma-2-2b-it', device_map='cpu', torch_dtype='auto')
-    print('  Model: cached')
-except Exception as e:
-    print(f'  Model: needs download ({e})')
-" 2>/dev/null || echo "  Model download may require HF_TOKEN with Gemma access."
 
 echo ""
 echo "=== Setup complete ==="

@@ -7,16 +7,20 @@ description: >
   URL, create a LoRA adapter from a document, answer questions from a document using
   a small on-device model, or run knowledge-grounded inference on a Mac. Also use
   when asked about Doc-to-LoRA, HyperLoRA, or document internalization.
+license: MIT
 compatibility: >
-  macOS with Apple Silicon (M1+), 16GB+ RAM. Requires Python 3.10+, uv package
-  manager, and ~10GB disk for model weights. Works on CPU/MPS (no CUDA needed).
-  MLX path recommended for Apple Silicon.
+  macOS with Apple Silicon (M1+), 16GB+ RAM. Requires: Python 3.10+, uv package
+  manager (https://docs.astral.sh/uv/), HF_TOKEN env var with Gemma model access
+  (https://huggingface.co/google/gemma-2-2b-it), ~10GB disk for model weights.
+  Works on CPU/MPS (no CUDA needed). MLX path recommended for Apple Silicon.
 metadata:
-  author: affine-cortex
-  version: "0.1.0"
+  author: Manojbhat09
+  version: "1.0.0"
   paper: "https://arxiv.org/abs/2602.15902"
   base-model: google/gemma-2-2b-it
   framework: pytorch,mlx
+  requires-env: HF_TOKEN
+  requires-bins: python3,uv
 ---
 
 # Doc-to-LoRA Skill
@@ -42,9 +46,13 @@ For architecture details, read `references/ARCHITECTURE.md` in this skill direct
 
 ## Prerequisites
 
+Requires `uv` (https://docs.astral.sh/uv/) and `HF_TOKEN` env var with Gemma
+model access (https://huggingface.co/google/gemma-2-2b-it).
+
 Run setup once. This installs dependencies and downloads model weights (~7GB total).
 
 ```bash
+export HF_TOKEN=hf_your_token_here
 bash ${CLAUDE_SKILL_DIR}/scripts/setup.sh
 ```
 
@@ -56,12 +64,14 @@ test -d trained_d2l/gemma_demo && echo "Weights present" || echo "Run setup firs
 ## Workflow A: PyTorch Path (simpler, ~10GB RAM)
 
 Use this when the user provides a document and wants answers.
+The `internalize.py` script handles both internalization and querying in one call.
 
-### Step 1: Internalize a document
+### Internalize a document and ask questions
 
 ```bash
 python ${CLAUDE_SKILL_DIR}/scripts/internalize.py \
   --input "path/to/document.txt" \
+  --question "What is the main finding?" \
   --checkpoint trained_d2l/gemma_demo/checkpoint-80000/pytorch_model.bin
 ```
 
@@ -69,22 +79,20 @@ Or pass text directly:
 ```bash
 python ${CLAUDE_SKILL_DIR}/scripts/internalize.py \
   --text "Paste the document content here..." \
-  --checkpoint trained_d2l/gemma_demo/checkpoint-80000/pytorch_model.bin
-```
-
-### Step 2: Ask questions
-
-```bash
-python ${CLAUDE_SKILL_DIR}/scripts/query.py \
-  --question "What is the main finding?" \
-  --checkpoint trained_d2l/gemma_demo/checkpoint-80000/pytorch_model.bin
+  --question "What is this about?"
 ```
 
 For multiple questions, pass them comma-separated:
 ```bash
-python ${CLAUDE_SKILL_DIR}/scripts/query.py \
-  --question "Question 1?,Question 2?,Question 3?" \
-  --checkpoint trained_d2l/gemma_demo/checkpoint-80000/pytorch_model.bin
+python ${CLAUDE_SKILL_DIR}/scripts/internalize.py \
+  --input "path/to/document.txt" \
+  --question "Question 1?,Question 2?,Question 3?"
+```
+
+For programmatic use, output results as JSON:
+```bash
+python ${CLAUDE_SKILL_DIR}/scripts/internalize.py \
+  --input doc.txt --question "Q?" --output-json results.json
 ```
 
 ## Workflow B: MLX Path (faster, ~6GB RAM, recommended for Mac)
@@ -125,6 +133,14 @@ python ${CLAUDE_SKILL_DIR}/scripts/query_mlx.py \
 - **Factual recall, not reasoning**: Best for "what does the doc say" questions, not deep multi-hop reasoning over the document.
 - **No real-time updates**: Once internalized, the adapter is static. Change the doc = re-internalize.
 
+## Security Notes
+
+- Checkpoints are loaded with `torch.load(weights_only=False)` because D2L
+  checkpoints contain Python config dataclasses alongside weights. **Only load
+  checkpoints from trusted sources** (the official SakanaAI/doc-to-lora repo).
+- The setup script does NOT download or run remote install scripts. It requires
+  `uv` and `HF_TOKEN` to be pre-installed/configured by the user.
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -134,19 +150,3 @@ python ${CLAUDE_SKILL_DIR}/scripts/query_mlx.py \
 | `RuntimeError: MPS backend out of memory` | Use MLX path instead, or close other apps |
 | `ImportError: bitsandbytes` | Expected on Mac. The scripts auto-disable quantization on non-CUDA. |
 | Answers seem wrong / generic | Check if LoRA is applied: outputs should differ from baseline. Try rephrasing. |
-
-## Example End-to-End
-
-User: "Internalize this Wikipedia article and tell me about the person."
-
-```bash
-# Save the article
-cat > /tmp/article.txt << 'EOF'
-Albert Einstein was a German-born theoretical physicist...
-EOF
-
-# Internalize + query (PyTorch path)
-python ${CLAUDE_SKILL_DIR}/scripts/internalize.py --input /tmp/article.txt
-python ${CLAUDE_SKILL_DIR}/scripts/query.py --question "Where was Einstein born?"
-# Expected: "Germany" or "Ulm, Germany"
-```

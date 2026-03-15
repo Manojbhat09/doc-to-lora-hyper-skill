@@ -5,3 +5,9 @@ trained_d2l/
 adapters_d2l/
 *.egg-info/
 .DS_Store
+.agent/
+.agents/
+.claude/
+.windsurf/
+skills/
+skills-lock.json
