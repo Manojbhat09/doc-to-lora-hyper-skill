@@ -13,14 +13,22 @@ compatibility: >
   manager (https://docs.astral.sh/uv/), HF_TOKEN env var with Gemma model access
   (https://huggingface.co/google/gemma-2-2b-it), ~10GB disk for model weights.
   Works on CPU/MPS (no CUDA needed). MLX path recommended for Apple Silicon.
+  This skill must be used inside a clone of the doc-to-lora repository
+  (https://github.com/Manojbhat09/doc-to-lora-hyper-skill).
 metadata:
   author: Manojbhat09
-  version: "1.0.0"
+  version: "1.2.0"
   paper: "https://arxiv.org/abs/2602.15902"
   base-model: google/gemma-2-2b-it
   framework: pytorch,mlx
-  requires-env: HF_TOKEN
-  requires-bins: python3,uv
+  openclaw:
+    requires:
+      env:
+        - HF_TOKEN
+      bins:
+        - python3
+        - uv
+    os: darwin
 ---
 
 # Doc-to-LoRA Skill
@@ -44,12 +52,36 @@ Document --> Context Encoder --> Perceiver --> HyperLoRA --> LoRA weights
 
 For architecture details, read `references/ARCHITECTURE.md` in this skill directory.
 
+## Security Notes
+
+- **Checkpoint loading**: `internalize.py` uses `torch.load(weights_only=False)`
+  because D2L checkpoints embed Python config dataclasses (AggregatorConfig,
+  LoraConfig, HypernetConfig) alongside tensor weights. The upstream D2L project
+  uses this format. **Only load checkpoints you trust.** The default checkpoint
+  source is the official `SakanaAI/doc-to-lora` HuggingFace repository.
+- **HF_TOKEN**: Required for downloading gated Gemma weights. This is a sensitive
+  secret. The scripts only pass it to `huggingface-cli download` and
+  `transformers` model loading. It is not sent anywhere else.
+- **No remote code execution**: setup.sh does not download or execute remote
+  scripts. It requires `uv` and `python3` to be pre-installed by the user.
+  All dependency installation is done via `uv pip install` with pinned versions.
+- **Checkpoint integrity**: After downloading, you can verify the checkpoint
+  against the HuggingFace repo's commit hash. The download uses `huggingface-cli`
+  which verifies checksums automatically.
+
 ## Prerequisites
 
-Requires `uv` (https://docs.astral.sh/uv/) and `HF_TOKEN` env var with Gemma
-model access (https://huggingface.co/google/gemma-2-2b-it).
+This skill runs inside a clone of the **doc-to-lora repository**. It is not
+a standalone tool.
 
-Run setup once. This installs dependencies and downloads model weights (~7GB total).
+Required before setup:
+- `python3` (3.10+)
+- `uv` package manager: https://docs.astral.sh/uv/getting-started/installation/
+- `HF_TOKEN` env var: https://huggingface.co/settings/tokens (with Gemma access)
+- Clone of the D2L repo with `install_mac.sh` present
+
+Run setup once. This installs Python dependencies and downloads model weights
+(~7GB total).
 
 ```bash
 export HF_TOKEN=hf_your_token_here
@@ -133,20 +165,13 @@ python ${CLAUDE_SKILL_DIR}/scripts/query_mlx.py \
 - **Factual recall, not reasoning**: Best for "what does the doc say" questions, not deep multi-hop reasoning over the document.
 - **No real-time updates**: Once internalized, the adapter is static. Change the doc = re-internalize.
 
-## Security Notes
-
-- Checkpoints are loaded with `torch.load(weights_only=False)` because D2L
-  checkpoints contain Python config dataclasses alongside weights. **Only load
-  checkpoints from trusted sources** (the official SakanaAI/doc-to-lora repo).
-- The setup script does NOT download or run remote install scripts. It requires
-  `uv` and `HF_TOKEN` to be pre-installed/configured by the user.
-
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
 | `ModuleNotFoundError: No module named 'ctx_to_lora'` | Run setup: `bash ${CLAUDE_SKILL_DIR}/scripts/setup.sh` |
 | `FileNotFoundError: trained_d2l/...` | Download weights: `uv run huggingface-cli download SakanaAI/doc-to-lora --local-dir trained_d2l` |
+| `FileNotFoundError: install_mac.sh` | This skill must be used inside a doc-to-lora repo clone that contains `install_mac.sh` |
 | `RuntimeError: MPS backend out of memory` | Use MLX path instead, or close other apps |
 | `ImportError: bitsandbytes` | Expected on Mac. The scripts auto-disable quantization on non-CUDA. |
 | Answers seem wrong / generic | Check if LoRA is applied: outputs should differ from baseline. Try rephrasing. |
